@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SRC Platform SSO & SSM Control Panel</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+<div class="app-bg"></div>
+
+<nav class="topbar">
+  <div class="container-fluid topbar-inner">
+    <div class="brand">
+      <div class="brand-mark">SRC</div>
+      <div class="brand-text">
+        <div class="brand-title">SRC Platform SSO & SSM Control Panel</div>
+
+        {% if mode == 'dashboard' %}
+          <div class="brand-subtitle">
+            Profile: <span class="mono">{{ selected_profile.name }}</span>
+            <span class="sep">•</span>
+            Region: <span class="mono">{{ selected_region }}</span>
+            <span class="sep">•</span>
+            Env: <span class="mono">{{ selected_profile.environment }}</span>
+          </div>
+        {% else %}
+          <div class="brand-subtitle">Choose a profile to browse DB endpoints and EC2 instances</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="topbar-actions">
+      <a class="btn btn-sm btn-ghost" href="{{ url_for('index') }}">Profiles</a>
+
+      <form method="post" action="{{ url_for('sync_profiles') }}" class="d-inline">
+        <button type="submit" class="btn btn-sm btn-ghost">Sync AWS Profiles</button>
+      </form>
+
+      {% if mode == 'dashboard' %}
+        <form method="get" action="{{ url_for('index') }}" class="d-inline">
+          <input type="hidden" name="profile" value="{{ selected_profile.name }}">
+          <select name="region" class="form-select form-select-sm region-select"
+                  onchange="this.form.submit()">
+            {% for r in available_regions %}
+              <option value="{{ r }}" {% if r == selected_region %}selected{% endif %}>{{ r }}</option>
+            {% endfor %}
+          </select>
+        </form>
+
+        <a class="btn btn-sm btn-ghost" href="{{ url_for('index', profile=selected_profile.name, region=selected_region) }}">Refresh</a>
+      {% endif %}
+    </div>
+  </div>
+</nav>
+
+<div class="container-fluid page">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="mt-3">
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} py-2 mb-2 glass-alert" style="white-space:pre-wrap">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  {% if mode == 'profiles' %}
+    <div class="section">
+      <div class="section-title">Profiles</div>
+      <div class="section-subtitle">Loaded from <span class="mono">~/.aws/config</span> and <span class="mono">~/.aws/credentials</span></div>
+
+      <div class="cards">
+        {% for p in profiles %}
+          <div class="cardx glass">
+            <div class="cardx-head">
+              <div>
+                <div class="cardx-title">{{ p.name }}</div>
+                <div class="muted small">Env: <span class="mono">{{ p.environment }}</span> • Default Region: <span class="mono">{{ p.region }}</span></div>
+              </div>
+              <div class="pill">{{ p.auth_type }}</div>
+            </div>
+
+            <div class="cardx-body">
+              <div class="muted small">Credentials detected: <b>{{ "Yes" if p.has_credentials else "No" }}</b></div>
+              {% if p.is_sso %}
+                <div class="muted small mt-2">StartUrl: <span class="mono">{{ p.sso_start_url }}</span></div>
+                <div class="muted small">Role: <span class="mono">{{ p.role_name }}</span></div>
+              {% else %}
+                <div class="muted small mt-2">Non-SSO profile (access keys / credentials chain)</div>
+              {% endif %}
+            </div>
+
+            <div class="cardx-actions">
+              {% if p.is_sso %}
+                <form method="post" action="{{ url_for('sso_login') }}" class="d-inline">
+                  <input type="hidden" name="profile" value="{{ p.name }}">
+                  <button type="submit" class="btn btn-sm btn-glass btn-3d btn-sso">SSO Login</button>
+                </form>
+              {% else %}
+                <a class="btn btn-sm btn-glass btn-open" href="{{ url_for('index', profile=p.name) }}">Open</a>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+
+      <div class="hint mt-3">
+        Tip: After SSO Login, inventory builds automatically. Then open dashboard and use SSM actions.
+      </div>
+    </div>
+
+  {% else %}
+
+    {% if update_job %}
+      <div class="jobbox glass-alert mt-3" id="jobBox" data-jobid="{{ update_job.job_id }}">
+        <div class="jobbox-head">
+          <div class="jobbox-title">
+            <span class="spinner" aria-hidden="true"></span>
+            Loading region inventory
+          </div>
+          <div class="muted small">
+            Status: <span class="mono" id="jobStatus">{{ update_job.status }}</span>
+            <span class="sep">•</span>
+            Last update: <span class="mono" id="jobLast">{{ update_job.last_update }}</span>
+          </div>
+        </div>
+
+        <div class="jobbox-body">
+          <div class="loadingline">
+            <span class="muted small">Loading instance details</span>
+            <span class="dots mono" id="dots">...</span>
+          </div>
+
+          <div class="progress-wrap">
+            <div class="progressbar">
+              <div class="progressbar-fill" id="pbFill" style="width: 6%"></div>
+            </div>
+            <div class="muted small mt-2">
+              Please wait… catalog is building in background.
+            </div>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
+    <div class="tabs-row mt-3" id="tabsRow">
+      {% for tech in ["MSSQL","PostgreSQL","MySQL","Aurora","Other DB"] %}
+        {% if db_grouped.get(tech) %}
+          <button class="tabbtn" data-tab="db-{{ tech|replace(' ','') }}">
+            <span class="dot"></span>
+            {{ tech }}
+          </button>
+        {% endif %}
+      {% endfor %}
+
+      {% for tech in ["PostgreSQL Cluster","MySQL Cluster","Aurora Cluster","DocDB Cluster","Cluster"] %}
+        {% if db_grouped.get(tech) %}
+          <button class="tabbtn" data-tab="db-{{ tech|replace(' ','') }}">
+            <span class="dot"></span>
+            {{ tech }}
+          </button>
+        {% endif %}
+      {% endfor %}
+
+      <div class="tabs-break"></div>
+
+      {% for tech in ["Web UI","Jumpbox","EC2"] %}
+        {% if ec2_grouped.get(tech) and ec2_grouped.get(tech)|length > 0 %}
+          <button class="tabbtn" data-tab="ec2-{{ tech|replace(' ','') }}">
+            <span class="dot"></span>
+            {{ tech }}
+          </button>
+        {% endif %}
+      {% endfor %}
+    </div>
+
+    <!-- DB PANELS -->
+    {% for tech, envmap in db_grouped.items() %}
+      <div class="tabpanel" id="db-{{ tech|replace(' ','') }}">
+        <div class="panel-head">
+          <div class="panel-title">{{ tech }} endpoints</div>
+          <div class="muted">Region: <span class="mono">{{ selected_region }}</span></div>
+        </div>
+
+        {% for env, items in envmap.items() %}
+          <div class="panel-head sub">
+            <div class="panel-title">{{ env }}</div>
+            <div class="muted">{{ items|length }} endpoints</div>
+          </div>
+
+          <div class="cards">
+            {% for it in items %}
+              {% set st = (it.status or 'unknown')|lower %}
+              {% set pill_class = 'pill-warn' %}
+              {% if st in ['available','running'] %}{% set pill_class = 'pill-ok' %}{% endif %}
+              {% if st in ['stopped','stopping','terminated','failed','deleting','deleted'] %}{% set pill_class = 'pill-bad' %}{% endif %}
+
+              <div class="cardx glass">
+                <div class="cardx-head">
+                  <div class="cardx-title">{{ it.name }}</div>
+                  <div class="pill {{ pill_class }}">{{ it.status or 'unknown' }}</div>
+                </div>
+
+                <div class="cardx-body">
+                  {% if it.engine %}
+                    <div class="kv"><span class="k">Engine</span><span class="v mono">{{ it.engine }}</span></div>
+                  {% endif %}
+
+                  <div class="kv">
+                    <span class="k">Status</span>
+                    <span class="v mono status-text {% if st in ['available','running'] %}status-running{% elif st in ['stopped','stopping','terminated','failed','deleting','deleted'] %}status-stopped{% else %}status-unknown{% endif %}">
+                      {{ it.status or 'unknown' }}
+                    </span>
+                  </div>
+
+                  {% if it.members and it.members|length > 0 %}
+                    <div class="kv">
+                      <span class="k">Members</span>
+                      <span class="v mono">{{ it.members|join(", ") }}</span>
+                    </div>
+                  {% endif %}
+
+                  <div class="kv"><span class="k">Endpoint</span><span class="v mono">{{ it.endpoint }}</span></div>
+                  <div class="kv"><span class="k">Remote Port</span><span class="v mono">{{ it.remote_port }}</span></div>
+                  <div class="kv"><span class="k">Local Port</span><span class="v mono">{{ it.local_port }}</span></div>
+
+                  <!-- ✅ Jumpbox display + Change button -->
+                  <div class="kv">
+                    <span class="k">Jumpbox</span>
+                    <span class="v mono">
+                      <span class="jb-effective"
+                            data-profile="{{ selected_profile.name }}"
+                            data-region="{{ selected_region }}"
+                            data-env="{{ it.env }}"
+                            data-target-type="{{ it.target_type }}">
+                        Loading...
+                      </span>
+                      <span class="muted small jb-source"></span>
+                    </span>
+                  </div>
+
+                  <div class="kv">
+                    <span class="k"></span>
+                    <span class="v">
+                      <button type="button"
+                              class="btn btn-sm btn-ghost jb-change"
+                              data-profile="{{ selected_profile.name }}"
+                              data-region="{{ selected_region }}"
+                              data-env="{{ it.env }}"
+                              data-target-type="{{ it.target_type }}">
+                        Change Jumpbox
+                      </button>
+                    </span>
+                  </div>
+                  <!-- ✅ end jumpbox UI -->
+
+                </div>
+
+                <div class="cardx-actions">
+                  <form method="post" action="{{ url_for('ssm_forward') }}" class="d-inline">
+                    <input type="hidden" name="profile" value="{{ selected_profile.name }}">
+                    <input type="hidden" name="region" value="{{ selected_region }}">
+                    <input type="hidden" name="target_type" value="{{ it.target_type }}">
+                    <input type="hidden" name="aws_target" value="{{ it.aws_target }}">
+                    <input type="hidden" name="remote_host" value="{{ it.endpoint }}">
+                    <input type="hidden" name="remote_port" value="{{ it.remote_port }}">
+                    <input type="hidden" name="local_port" value="{{ it.local_port }}">
+                    <input type="hidden" name="env" value="{{ it.env }}">
+                    <input type="hidden" name="can_forward" value="{{ 1 if it.can_forward else 0 }}">
+
+                    <button type="submit"
+                            class="btn btn-sm btn-glass btn-3d btn-ssm {% if not it.can_forward %}btn-disabled{% endif %}"
+                            {% if not it.can_forward %}disabled title="DB is not available/running"{% endif %}>
+                      SSM Port Forward
+                    </button>
+                  </form>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+    {% endfor %}
+
+    <!-- WEB UI PANEL -->
+    {% if ec2_grouped.get("Web UI") and ec2_grouped.get("Web UI")|length > 0 %}
+      <div class="tabpanel" id="ec2-WebUI">
+        <div class="panel-head">
+          <div class="panel-title">Web UI instances (neo4j / rabbit / rmq)</div>
+          <div class="muted">{{ ec2_grouped.get("Web UI")|length }} instances • Region: <span class="mono">{{ selected_region }}</span></div>
+        </div>
+
+        <div class="cards">
+          {% for it in ec2_grouped.get("Web UI") %}
+            {% set st = (it.state or 'unknown')|lower %}
+            <div class="cardx glass">
+              <div class="cardx-head">
+                <div class="cardx-title">{{ it.name }}</div>
+                <div class="pill {% if st == 'running' %}pill-ok{% elif st in ['stopped','stopping','terminated','shutting-down'] %}pill-bad{% else %}pill-warn{% endif %}">
+                  {{ it.state or 'unknown' }}
+                </div>
+              </div>
+
+              <div class="cardx-body">
+                <div class="kv"><span class="k">Instance</span><span class="v mono">{{ it.instance_id }}</span></div>
+                <div class="kv"><span class="k">Web UI Remote Port</span><span class="v mono">8080</span></div>
+                <div class="kv"><span class="k">Local Port</span><span class="v mono">{{ it.local_port }}</span></div>
+              </div>
+
+              <div class="cardx-actions">
+                <form method="post" action="{{ url_for('webui_forward') }}" class="d-inline">
+                  <input type="hidden" name="profile" value="{{ selected_profile.name }}">
+                  <input type="hidden" name="region" value="{{ selected_region }}">
+                  <input type="hidden" name="instance_id" value="{{ it.instance_id }}">
+                  <input type="hidden" name="local_port" value="{{ it.local_port }}">
+                  <input type="hidden" name="env" value="{{ it.env }}">
+                  <input type="hidden" name="can_forward" value="{{ 1 if it.can_forward else 0 }}">
+
+                  <button type="submit"
+                          class="btn btn-sm btn-glass btn-3d btn-ssm {% if not it.can_forward %}btn-disabled{% endif %}"
+                          {% if not it.can_forward %}disabled title="Instance is not running"{% endif %}>
+                    SSM Port Forward (8080)
+                  </button>
+                </form>
+
+                <form method="post" action="{{ url_for('ssm_shell') }}" class="d-inline">
+                  <input type="hidden" name="profile" value="{{ selected_profile.name }}">
+                  <input type="hidden" name="region" value="{{ selected_region }}">
+                  <input type="hidden" name="instance_id" value="{{ it.instance_id }}">
+                  <button type="submit"
+                          class="btn btn-sm btn-glass btn-3d btn-open {% if not it.can_forward %}btn-disabled{% endif %}"
+                          {% if not it.can_forward %}disabled title="Instance is not running"{% endif %}>
+                    SSM Shell
+                  </button>
+                </form>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
+    <!-- JUMPBOX PANEL -->
+    {% if ec2_grouped.get("Jumpbox") and ec2_grouped.get("Jumpbox")|length > 0 %}
+      <div class="tabpanel" id="ec2-Jumpbox">
+        <div class="panel-head">
+          <div class="panel-title">Jumpbox instances</div>
+          <div class="muted">{{ ec2_grouped.get("Jumpbox")|length }} instances • Region: <span class="mono">{{ selected_region }}</span></div>
+        </div>
+
+        <div class="cards">
+          {% for it in ec2_grouped.get("Jumpbox") %}
+            {% set st = (it.state or 'unknown')|lower %}
+            <div class="cardx glass">
+              <div class="cardx-head">
+                <div class="cardx-title">{{ it.name }}</div>
+                <div class="pill {% if st == 'running' %}pill-ok{% elif st in ['stopped','stopping','terminated','shutting-down'] %}pill-bad{% else %}pill-warn{% endif %}">
+                  {{ it.state or 'unknown' }}
+                </div>
+              </div>
+
+              <div class="cardx-body">
+                <div class="kv"><span class="k">Instance</span><span class="v mono">{{ it.instance_id }}</span></div>
+              </div>
+
+              <div class="cardx-actions">
+                <form method="post" action="{{ url_for('ssm_shell') }}" class="d-inline">
+                  <input type="hidden" name="profile" value="{{ selected_profile.name }}">
+                  <input type="hidden" name="region" value="{{ selected_region }}">
+                  <input type="hidden" name="instance_id" value="{{ it.instance_id }}">
+                  <button type="submit"
+                          class="btn btn-sm btn-glass btn-3d btn-open {% if not it.can_forward %}btn-disabled{% endif %}"
+                          {% if not it.can_forward %}disabled title="Instance is not running"{% endif %}>
+                    SSM Shell
+                  </button>
+                </form>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
+    <!-- EC2 PANEL -->
+    {% if ec2_grouped.get("EC2") and ec2_grouped.get("EC2")|length > 0 %}
+      <div class="tabpanel" id="ec2-EC2">
+        <div class="panel-head">
+          <div class="panel-title">EC2 instances</div>
+          <div class="muted">{{ ec2_grouped.get("EC2")|length }} instances • Region: <span class="mono">{{ selected_region }}</span></div>
+        </div>
+
+        <div class="cards">
+          {% for it in ec2_grouped.get("EC2") %}
+            {% set st = (it.state or 'unknown')|lower %}
+            <div class="cardx glass">
+              <div class="cardx-head">
+                <div class="cardx-title">{{ it.name }}</div>
+                <div class="pill {% if st == 'running' %}pill-ok{% elif st in ['stopped','stopping','terminated','shutting-down'] %}pill-bad{% else %}pill-warn{% endif %}">
+                  {{ it.state or 'unknown' }}
+                </div>
+              </div>
+
+              <div class="cardx-body">
+                <div class="kv"><span class="k">Instance</span><span class="v mono">{{ it.instance_id }}</span></div>
+              </div>
+
+              <div class="cardx-actions">
+                <form method="post" action="{{ url_for('ssm_shell') }}" class="d-inline">
+                  <input type="hidden" name="profile" value="{{ selected_profile.name }}">
+                  <input type="hidden" name="region" value="{{ selected_region }}">
+                  <input type="hidden" name="instance_id" value="{{ it.instance_id }}">
+                  <button type="submit"
+                          class="btn btn-sm btn-glass btn-3d btn-open {% if not it.can_forward %}btn-disabled{% endif %}"
+                          {% if not it.can_forward %}disabled title="Instance is not running"{% endif %}>
+                    SSM Shell
+                  </button>
+                </form>
+              </div>
+
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
+  {% endif %}
+</div>
+
+<!-- ✅ Jumpbox Change Modal -->
+<div class="modal fade" id="jumpboxModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content glass" style="border-radius:16px;">
+      <div class="modal-header" style="border-bottom:1px solid rgba(255,255,255,.08);">
+        <h5 class="modal-title">Choose Jumpbox</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="muted small mb-2" id="jbModalContext"></div>
+        <select class="form-select" id="jbModalSelect">
+          <option value="">Loading jumpboxes...</option>
+        </select>
+        <div class="muted small mt-2">This will become the default jumpbox for this Profile/Region/Env/Target type until you change it again.</div>
+      </div>
+      <div class="modal-footer" style="border-top:1px solid rgba(255,255,255,.08);">
+        <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-glass btn-3d btn-sso" id="jbModalSaveBtn">Save as Default</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Bootstrap JS (needed for modal) -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+  // Tabs
+  const tabButtons = document.querySelectorAll('.tabbtn');
+  const tabPanels = document.querySelectorAll('.tabpanel');
+
+  function activate(tabId){
+    tabButtons.forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
+    tabPanels.forEach(p => p.classList.toggle('active', p.id === tabId));
+    try { localStorage.setItem('lastTab', tabId); } catch(e){}
+  }
+  tabButtons.forEach(btn => btn.addEventListener('click', () => activate(btn.dataset.tab)));
+  const last = (() => { try { return localStorage.getItem('lastTab'); } catch(e){ return null; } })();
+  const exists = last && document.getElementById(last);
+  if (exists) activate(last);
+  else if (tabButtons.length) activate(tabButtons[0].dataset.tab);
+
+  // Update job polling
+  const jobBox = document.getElementById('jobBox');
+  if (jobBox) {
+    const jobId = jobBox.getAttribute('data-jobid');
+    const statusEl = document.getElementById('jobStatus');
+    const lastEl = document.getElementById('jobLast');
+    const dotsEl = document.getElementById('dots');
+    const pbFill = document.getElementById('pbFill');
+
+    let dotCount = 0;
+    let percent = 6;
+
+    function tickDots(){
+      dotCount = (dotCount + 1) % 6;
+      if (dotsEl) dotsEl.textContent = '.'.repeat(dotCount) || '.';
+    }
+
+    function tickProgress(){
+      if (percent < 92) {
+        const step = percent < 40 ? 4 : (percent < 70 ? 2 : 1);
+        percent = Math.min(92, percent + step);
+        if (pbFill) pbFill.style.width = percent + '%';
+      }
+    }
+
+    async function pollJob(){
+      try{
+        const res = await fetch(`/update-catalog/status/${jobId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+
+        if (statusEl) statusEl.textContent = data.status || '';
+        if (lastEl) lastEl.textContent = data.last_update || '';
+
+        if (data.status === 'completed') {
+          percent = 100;
+          if (pbFill) pbFill.style.width = '100%';
+          setTimeout(() => window.location.reload(), 500);
+          return;
+        }
+        if (data.status === 'failed') {
+          percent = Math.max(percent, 96);
+          if (pbFill) pbFill.style.width = percent + '%';
+          return;
+        }
+      }catch(e){}
+      setTimeout(pollJob, 1400);
+    }
+
+    setInterval(tickDots, 350);
+    setInterval(tickProgress, 1000);
+    setTimeout(pollJob, 500);
+  }
+
+  // ------------------------------------------------------------------------------------
+  // ✅ Jumpbox effective display + modal selector
+  // Requires backend endpoints:
+  //   GET  /api/jumpboxes?profile=...&region=...&env=...
+  //   GET  /api/jumpbox/get?profile=...&region=...&env=...&target_type=...
+  //        -> should return effective_jumpbox_id + source (saved/auto)
+  //   POST /api/jumpbox/set   {profile, region, env, target_type, jumpbox_id}
+  // ------------------------------------------------------------------------------------
+
+  const jbModalEl = document.getElementById("jumpboxModal");
+  const jbModal = new bootstrap.Modal(jbModalEl);
+  const jbSelect = document.getElementById("jbModalSelect");
+  const jbSaveBtn = document.getElementById("jbModalSaveBtn");
+  const jbCtx = document.getElementById("jbModalContext");
+
+  let jbContext = null; // {profile, region, env, target_type, span}
+
+  async function loadEffectiveJumpbox(spanEl) {
+    const profile = spanEl.dataset.profile;
+    const region  = spanEl.dataset.region;
+    const env     = (spanEl.dataset.env || "OTHER").toUpperCase();
+    const targetType = (spanEl.dataset.targetType || "db").toLowerCase();
+
+    const url = `/api/jumpbox/get?profile=${encodeURIComponent(profile)}&region=${encodeURIComponent(region)}&env=${encodeURIComponent(env)}&target_type=${encodeURIComponent(targetType)}`;
+    const r = await fetch(url);
+    const data = await r.json();
+
+    if (!data || !data.ok) {
+      spanEl.textContent = "(Not found)";
+      return;
+    }
+
+    const eff = data.effective_jumpbox_id || "";
+    const src = (data.source || "").toLowerCase();
+    spanEl.textContent = eff ? eff : "(Not found)";
+
+    // optional label
+    const srcEl = spanEl.parentElement.querySelector(".jb-source");
+    if (srcEl) {
+      srcEl.textContent = src ? ` (${src})` : "";
+    }
+  }
+
+  async function loadJumpboxList(profile, region, env) {
+    jbSelect.innerHTML = `<option value="">Loading jumpboxes...</option>`;
+    const url = `/api/jumpboxes?profile=${encodeURIComponent(profile)}&region=${encodeURIComponent(region)}&env=${encodeURIComponent(env)}`;
+    const r = await fetch(url);
+    const data = await r.json();
+
+    jbSelect.innerHTML = "";
+    if (!data || !data.ok) {
+      jbSelect.innerHTML = `<option value="">(Failed to load jumpboxes)</option>`;
+      return;
+    }
+
+    const opts = data.jumpboxes || [];
+    if (opts.length === 0) {
+      jbSelect.innerHTML = `<option value="">(No jumpboxes found)</option>`;
+      return;
+    }
+
+    jbSelect.insertAdjacentHTML("beforeend", `<option value="">-- Select Jumpbox --</option>`);
+    for (const j of opts) {
+      const label = `${(j.name || j.instance_id)} (${j.instance_id}) [${(j.env || "OTHER")}] ${(j.state || "")}`;
+      jbSelect.insertAdjacentHTML("beforeend", `<option value="${j.instance_id}">${label}</option>`);
+    }
+  }
+
+  async function saveDefaultJumpbox(ctx, jumpboxId) {
+    const r = await fetch("/api/jumpbox/set", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        profile: ctx.profile,
+        region: ctx.region,
+        env: ctx.env,
+        target_type: ctx.target_type,
+        jumpbox_id: jumpboxId
+      })
+    });
+
+    const data = await r.json();
+    if (!data || !data.ok) {
+      alert(data.error || "Failed to save jumpbox preference.");
+      return false;
+    }
+    return true;
+  }
+
+  document.addEventListener("DOMContentLoaded", async () => {
+    // 1) Load effective jumpbox display on each DB card
+    const spans = Array.from(document.querySelectorAll(".jb-effective"));
+    for (const sp of spans) {
+      try { await loadEffectiveJumpbox(sp); } catch(e) { sp.textContent = "(Error)"; }
+    }
+
+    // 2) Change button -> confirm -> open modal
+    const changeBtns = Array.from(document.querySelectorAll(".jb-change"));
+    for (const btn of changeBtns) {
+      btn.addEventListener("click", async () => {
+        const ok = confirm("Do you want to update the jumpbox?");
+        if (!ok) return;
+
+        const profile = btn.dataset.profile;
+        const region  = btn.dataset.region;
+        const env     = (btn.dataset.env || "OTHER").toUpperCase();
+        const targetType = (btn.dataset.targetType || "db").toLowerCase();
+
+        const span = spans.find(s =>
+          s.dataset.profile === profile &&
+          s.dataset.region  === region &&
+          (s.dataset.env || "OTHER").toUpperCase() === env &&
+          (s.dataset.targetType || "db").toLowerCase() === targetType
+        );
+
+        jbContext = { profile, region, env, target_type: targetType, span };
+
+        jbCtx.textContent = `Profile: ${profile} • Region: ${region} • Env: ${env} • TargetType: ${targetType}`;
+
+        await loadJumpboxList(profile, region, env);
+
+        // preselect current effective if present
+        const current = (span && span.textContent && !span.textContent.includes("(")) ? span.textContent.trim() : "";
+        if (current) {
+          for (const opt of jbSelect.options) {
+            if (opt.value === current) { jbSelect.value = current; break; }
+          }
+        }
+
+        jbModal.show();
+      });
+    }
+
+    // 3) Save in modal
+    jbSaveBtn.addEventListener("click", async () => {
+      if (!jbContext) return;
+      const chosen = jbSelect.value;
+      if (!chosen) {
+        alert("Please select a jumpbox.");
+        return;
+      }
+
+      const ok = await saveDefaultJumpbox(jbContext, chosen);
+      if (!ok) return;
+
+      // update UI immediately
+      if (jbContext.span) {
+        jbContext.span.textContent = chosen;
+        const srcEl = jbContext.span.parentElement.querySelector(".jb-source");
+        if (srcEl) srcEl.textContent = " (saved)";
+      }
+
+      jbModal.hide();
+      alert("Saved! This jumpbox will be used until you change it again.");
+    });
+  });
+</script>
+</body>
+</html>
