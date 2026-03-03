@@ -1,0 +1,9 @@
+Flask==3.0.3
+appdirs==1.4.4
+
+# Flask deps pinned
+Jinja2==3.1.4
+MarkupSafe==2.1.5
+
+# Desktop UI wrapper
+pywebview==5.1
