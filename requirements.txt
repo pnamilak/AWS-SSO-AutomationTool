@@ -7,4 +7,10 @@ MarkupSafe==2.1.5
 
 # Desktop UI wrapper
 pywebview==5.1
+
+# Production server (used by launcher/main)
 waitress==2.1.2
+
+# IMPORTANT for macOS webview backend stability
+pyobjc-core
+pyobjc-framework-Cocoa
