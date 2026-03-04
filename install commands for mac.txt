@@ -1,0 +1,10 @@
+install commands for mac
+
+ pyinstaller --noconfirm --clean --windowed \
+  --name "AwsSsoSsmDashboardTool" \
+  --hidden-import waitress \
+  --hidden-import webview \
+  --add-data "app/templates:app/templates" \
+  --add-data "app/static:app/static" \
+  --add-data "schema.sql:schema.sql" \
+  launcher_desktop.py
