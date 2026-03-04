@@ -1750,7 +1750,18 @@ def run_desktop():
     )
     # debug=False to avoid extra noise
     webview.start(debug=False)
-
+def serve_app(host: str = "127.0.0.1", port: int = 5050):
+    """
+    Server entrypoint for launcher_desktop.py.
+    Uses waitress if available; otherwise falls back to Flask dev server.
+    """
+    try:
+        from waitress import serve  # type: ignore
+        serve(app, host=host, port=port, threads=8)
+    except Exception:
+        app.run(host=host, port=port, debug=False, threaded=True)
 
 if __name__ == "__main__":
     run_desktop()
+    
+    
