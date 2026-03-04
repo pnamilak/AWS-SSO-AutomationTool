@@ -14,96 +14,60 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 5050
 
 # --------------------------------------------------------------------------------------
-# Ultra-safe file logging (never fail silently)
+# Cross-platform app data dir (matches main.py behavior)
 # --------------------------------------------------------------------------------------
+def get_app_data_dir(app_name: str = "AwsSsoSsmDashboardTool") -> Path:
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        return Path(base) / app_name
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / app_name
+    xdg = os.environ.get("XDG_DATA_HOME")
+    if xdg:
+        return Path(xdg) / app_name
+    return Path.home() / ".local" / "share" / app_name
 
-def _safe_get_localappdata() -> str:
-    # Sometimes env is missing in services / restricted shells
-    v = os.environ.get("LOCALAPPDATA", "")
-    if v:
-        return v
-    # fallback
-    return str(Path.home() / "AppData" / "Local")
+APP_DATA_DIR = get_app_data_dir()
+LOG_DIR = APP_DATA_DIR / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-
-def data_dir() -> Path:
-    # IMPORTANT: keep this stable and same as installer (LOCALAPPDATA\AwsSsoSsmDashboardTool)
-    return Path(_safe_get_localappdata()) / "AwsSsoSsmDashboardTool"
-
-
-def log_dir() -> Path:
-    return data_dir() / "logs"
-
-
-def launcher_log_path_primary() -> Path:
-    return log_dir() / "launcher.log"
-
-
-def launcher_log_path_fallback() -> Path:
-    # if LOCALAPPDATA write fails for any reason, log here
-    return Path(os.environ.get("TEMP", str(Path.home()))) / "AwsSsoSsmDashboardTool_launcher_fallback.log"
+PRIMARY_LOG = LOG_DIR / "launcher.log"
+FALLBACK_LOG = Path(os.environ.get("TMPDIR", str(Path.home()))) / "AwsSsoSsmDashboardTool_launcher_fallback.log"
 
 
 def _write_fallback(text: str) -> None:
     try:
-        p = launcher_log_path_fallback()
-        p.parent.mkdir(parents=True, exist_ok=True)
-        with open(p, "a", encoding="utf-8", errors="ignore") as f:
-            f.write(text)
-            if not text.endswith("\n"):
-                f.write("\n")
+        with open(FALLBACK_LOG, "a", encoding="utf-8", errors="ignore") as f:
+            f.write(text + ("\n" if not text.endswith("\n") else ""))
     except Exception:
-        # absolutely last resort: do nothing
         pass
 
 
 def setup_logger() -> logging.Logger:
-    """
-    Never raise from here. If primary log path fails, use TEMP fallback.
-    """
     logger = logging.getLogger("AwsSsoSsmDashboardTool.Launcher")
     logger.setLevel(logging.INFO)
-
     if logger.handlers:
         return logger
 
     fmt = logging.Formatter("[%(asctime)s] %(levelname)s %(message)s", "%Y-%m-%d %H:%M:%S")
-
-    # Try primary
     try:
-        log_dir().mkdir(parents=True, exist_ok=True)
-        fh = logging.FileHandler(str(launcher_log_path_primary()), encoding="utf-8")
+        fh = logging.FileHandler(str(PRIMARY_LOG), encoding="utf-8")
         fh.setFormatter(fmt)
         logger.addHandler(fh)
-        logger.info("Logger initialized (primary): %s", str(launcher_log_path_primary()))
-        return logger
+        logger.info("Logger initialized: %s", str(PRIMARY_LOG))
     except Exception as ex:
         _write_fallback("LOGGER_PRIMARY_FAILED: " + repr(ex))
-
-    # Fallback
-    try:
-        fh = logging.FileHandler(str(launcher_log_path_fallback()), encoding="utf-8")
-        fh.setFormatter(fmt)
-        logger.addHandler(fh)
-        logger.info("Logger initialized (fallback): %s", str(launcher_log_path_fallback()))
-        return logger
-    except Exception as ex:
-        _write_fallback("LOGGER_FALLBACK_FAILED: " + repr(ex))
-
     return logger
 
 
 LOG = setup_logger()
 
-# pywebview is optional at runtime; fallback to system browser if missing
+# Optional: pywebview
 try:
     import webview  # type: ignore
 except Exception as ex:
     webview = None
-    try:
-        LOG.info("pywebview import failed: %r", ex)
-    except Exception:
-        _write_fallback("pywebview import failed: " + repr(ex))
+    LOG.info("pywebview import failed: %r", ex)
 
 
 def is_frozen() -> bool:
@@ -111,9 +75,6 @@ def is_frozen() -> bool:
 
 
 def app_base_dir() -> Path:
-    """
-    In one-dir builds, sys._MEIPASS points to the _internal folder in dist.
-    """
     if is_frozen() and hasattr(sys, "_MEIPASS"):
         return Path(getattr(sys, "_MEIPASS")).resolve()
     return Path(__file__).resolve().parent
@@ -121,53 +82,14 @@ def app_base_dir() -> Path:
 
 def ensure_import_paths() -> None:
     base = app_base_dir()
-
-    # Ensure we run from _internal so templates/static are resolvable
     os.chdir(str(base))
     if str(base) not in sys.path:
         sys.path.insert(0, str(base))
-
     LOG.info("BaseDir=%s", str(base))
     LOG.info("CWD=%s", os.getcwd())
     LOG.info("Frozen=%s", str(is_frozen()))
-    LOG.info("sys.executable=%s", sys.executable)
     if hasattr(sys, "_MEIPASS"):
         LOG.info("sys._MEIPASS=%s", str(getattr(sys, "_MEIPASS")))
-
-
-def has_webview2_runtime() -> bool:
-    if os.name != "nt":
-        return True
-
-    candidates = [
-        r"C:\Program Files (x86)\Microsoft\EdgeWebView\Application",
-        r"C:\Program Files\Microsoft\EdgeWebView\Application",
-    ]
-    la = os.environ.get("LOCALAPPDATA", "")
-    if la:
-        candidates.append(os.path.join(la, r"Microsoft\EdgeWebView\Application"))
-
-    for p in candidates:
-        if os.path.isdir(p):
-            return True
-
-    try:
-        import winreg  # type: ignore
-        reg_candidates = [
-            (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\EdgeUpdate\Clients"),
-            (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients"),
-            (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\EdgeUpdate\Clients"),
-        ]
-        for root, key in reg_candidates:
-            try:
-                winreg.OpenKey(root, key)
-                return True
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-    return False
 
 
 def port_is_listening(host: str, port: int) -> bool:
@@ -210,45 +132,22 @@ def wait_for_port(host: str, port: int, timeout_sec: int = 40) -> bool:
     return False
 
 
-def show_friendly_error(msg: str) -> None:
-    try:
-        import tkinter as tk
-        from tkinter import messagebox
-
-        root = tk.Tk()
-        root.withdraw()
-        messagebox.showerror(APP_TITLE, msg)
-        root.destroy()
-    except Exception:
-        # as last resort, write to fallback log
-        _write_fallback("FRIENDLY_ERROR_FAILED\n" + msg)
-
-
 def _serve_using_main(host: str, port: int) -> None:
     os.environ["DASHBOARD_HOST"] = host
     os.environ["DASHBOARD_PORT"] = str(port)
 
-    LOG.info("Server: importing main (cwd=%s)", os.getcwd())
-
     import main  # noqa
 
-    # If your main.py supports serve_app(host,port), use it.
     if hasattr(main, "serve_app"):
-        LOG.info("Server: calling main.serve_app()")
-        main.serve_app()
+        LOG.info("Server: calling main.serve_app(host=%s, port=%d)", host, port)
+        main.serve_app(host=host, port=port)
         return
 
-    # Fallback: if it exposes app as 'app' or 'APP', use waitress
-    flask_app = None
-    if hasattr(main, "app"):
-        flask_app = getattr(main, "app")
-    elif hasattr(main, "APP"):
-        flask_app = getattr(main, "APP")
-
+    # Fallback: run flask directly if exposed
+    flask_app = getattr(main, "app", None) or getattr(main, "APP", None)
     if flask_app is not None:
-        from waitress import serve  # type: ignore
-        LOG.info("Server: waitress.serve(flask_app) host=%s port=%d", host, port)
-        serve(flask_app, host=host, port=port, threads=8)
+        LOG.info("Server: fallback flask dev server host=%s port=%d", host, port)
+        flask_app.run(host=host, port=port, debug=False, threaded=True)
         return
 
     raise RuntimeError("main.py does not expose serve_app(), app, or APP")
@@ -257,7 +156,6 @@ def _serve_using_main(host: str, port: int) -> None:
 def start_server_thread(host: str, port: int) -> None:
     try:
         _serve_using_main(host, port)
-        LOG.info("Server returned (unexpected).")
     except Exception as ex:
         LOG.error("SERVER_CRASH: %r", ex)
         LOG.error(traceback.format_exc())
@@ -265,18 +163,12 @@ def start_server_thread(host: str, port: int) -> None:
 
 
 def run_browser_mode(url: str, server_thread: threading.Thread) -> None:
-    LOG.info("Browser mode: opening system browser: %s", url)
     try:
         webbrowser.open(url)
-    except Exception as ex:
-        LOG.error("webbrowser.open failed: %r", ex)
-
-    # keep process alive a bit so user sees something
-    try:
-        while server_thread.is_alive():
-            time.sleep(1.0)
-    except KeyboardInterrupt:
-        LOG.info("KeyboardInterrupt received; exiting.")
+    except Exception:
+        pass
+    while server_thread.is_alive():
+        time.sleep(1.0)
 
 
 def main_entry() -> None:
@@ -284,16 +176,14 @@ def main_entry() -> None:
 
     host = os.environ.get("DASHBOARD_HOST", DEFAULT_HOST)
     preferred_port = int(os.environ.get("DASHBOARD_PORT", str(DEFAULT_PORT)))
-
     chosen_port = pick_port(host, preferred_port)
     url = f"http://{host}:{chosen_port}/"
 
     LOG.info("Launcher starting host=%s preferred_port=%d chosen_port=%d url=%s",
              host, preferred_port, chosen_port, url)
-    LOG.info("webview_available=%s webview2_probe=%s",
-             str(webview is not None), str(has_webview2_runtime()))
-    LOG.info("primary_log=%s", str(launcher_log_path_primary()))
-    LOG.info("fallback_log=%s", str(launcher_log_path_fallback()))
+    LOG.info("primary_log=%s", str(PRIMARY_LOG))
+    LOG.info("fallback_log=%s", str(FALLBACK_LOG))
+    LOG.info("webview_available=%s", str(webview is not None))
 
     server_thread = threading.Thread(target=start_server_thread, args=(host, chosen_port), daemon=True)
     server_thread.start()
@@ -302,53 +192,18 @@ def main_entry() -> None:
     LOG.info("Port listening=%s host=%s port=%d", str(ok), host, chosen_port)
 
     if not ok:
-        msg = (
-            "The app UI could not start because the local server did not come online.\n\n"
-            f"URL attempted:\n  {url}\n\n"
-            "Please check logs:\n"
-            f"  Primary:  {str(launcher_log_path_primary())}\n"
-            f"  Fallback: {str(launcher_log_path_fallback())}\n"
-        )
-        show_friendly_error(msg)
+        # show browser anyway so user sees something; but log will show crash
         run_browser_mode(url, server_thread)
         return
 
-    # If pywebview is missing, fallback to browser
     if webview is None:
-        LOG.info("pywebview missing -> browser mode.")
         run_browser_mode(url, server_thread)
         return
 
-    try:
-        LOG.info("Opening pywebview window.")
-        webview.create_window(
-            APP_TITLE,
-            url,
-            width=1280,
-            height=800,
-            text_select=True,
-            confirm_close=True
-        )
-        webview.start(gui="edgechromium")
-    except Exception as ex:
-        LOG.error("pywebview failed. Falling back to browser: %r", ex)
-        LOG.error(traceback.format_exc())
-        run_browser_mode(url, server_thread)
+    # IMPORTANT: do NOT force gui="edgechromium" on macOS
+    webview.create_window(APP_TITLE, url, width=1280, height=800, text_select=True, confirm_close=True)
+    webview.start(debug=False)
 
 
 if __name__ == "__main__":
-    try:
-        main_entry()
-    except Exception as ex:
-        # Absolute top-level crash handler
-        txt = "LAUNCHER_FATAL: " + repr(ex) + "\n" + traceback.format_exc()
-        _write_fallback(txt)
-        try:
-            LOG.error(txt)
-        except Exception:
-            pass
-        show_friendly_error(
-            "Launcher crashed.\n\n"
-            "Please check the fallback log:\n"
-            f"{str(launcher_log_path_fallback())}\n"
-        )
+    main_entry()
