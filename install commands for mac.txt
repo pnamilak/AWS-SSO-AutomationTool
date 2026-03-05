@@ -50,3 +50,24 @@ pyinstaller --noconfirm --clean --windowed \
   --add-data "app/static:app/static" \
   --add-data "schema.sql:." \
   launcher_desktop.py
+
+
+file dist/AwsSsoSsmDashboardTool.app/Contents/MacOS/AwsSsoSsmDashboardTool
+
+./dist/AwsSsoSsmDashboardTool.app/Contents/MacOS/AwsSsoSsmDashboardTool
+
+
+brew install create-dmg
+
+rm -rf dmg && mkdir dmg
+cp -R dist/AwsSsoSsmDashboardTool.app dmg/
+
+create-dmg \
+  --volname "AwsSsoSsmDashboardTool" \
+  --window-pos 200 120 \
+  --window-size 800 400 \
+  --icon-size 120 \
+  --app-drop-link 600 185 \
+  AwsSsoSsmDashboardTool-mac-universal2.dmg \
+  dmg/
+
