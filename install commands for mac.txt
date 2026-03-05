@@ -24,3 +24,18 @@ lsof -nP -iTCP:5050 -sTCP:LISTEN
 cat ~/Library/Application\ Support/AwsSsoSsmDashboardTool/logs/launcher.log
 
 
+
+brew install create-dmg
+
+mkdir dmg
+cp -R dist/AwsSsoSsmDashboardTool.app dmg/
+
+create-dmg \
+  --volname "AwsSsoSsmDashboardTool" \
+  --window-pos 200 120 \
+  --window-size 800 400 \
+  --icon-size 120 \
+  --app-drop-link 600 185 \
+  AwsSsoSsmDashboardTool.dmg \
+  dmg/
+
