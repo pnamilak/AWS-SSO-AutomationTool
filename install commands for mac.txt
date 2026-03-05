@@ -7,4 +7,13 @@ install commands for mac
   --add-data "app/templates:app/templates" \
   --add-data "app/static:app/static" \
   --add-data "schema.sql:schema.sql" \
+
   launcher_desktop.py
+
+
+
+./dist/AwsSsoSsmDashboardTool.app/Contents/MacOS/AwsSsoSsmDashboardTool
+
+lsof -nP -iTCP:5050 -sTCP:LISTEN
+
+cat ~/Library/Application\ Support/AwsSsoSsmDashboardTool/logs/launcher.log
