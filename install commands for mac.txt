@@ -39,3 +39,14 @@ create-dmg \
   AwsSsoSsmDashboardTool.dmg \
   dmg/
 
+universal 2:
+
+pyinstaller --noconfirm --clean --windowed \
+  --target-architecture universal2 \
+  --name "AwsSsoSsmDashboardTool" \
+  --hidden-import waitress \
+  --hidden-import webview \
+  --add-data "app/templates:app/templates" \
+  --add-data "app/static:app/static" \
+  --add-data "schema.sql:." \
+  launcher_desktop.py
