@@ -17,3 +17,54 @@ install commands for mac
 lsof -nP -iTCP:5050 -sTCP:LISTEN
 
 cat ~/Library/Application\ Support/AwsSsoSsmDashboardTool/logs/launcher.log
+
+
+
+(.venv) ec2-user@ip-172-25-22-105 AWS-SSO-AutomationTool % ./dist/AwsSsoSsmDashboardTool.app/Contents/MacOS/AwsSsoSsmDashboardTool
+(.venv) ec2-user@ip-172-25-22-105 AWS-SSO-AutomationTool % lsof -nP -iTCP:5050 -sTCP:LISTEN
+(.venv) ec2-user@ip-172-25-22-105 AWS-SSO-AutomationTool % cat ~/Library/Application\ Support/AwsSsoSsmDashboardTool/logs/launcher.log
+[2026-03-05 07:19:47] INFO Logger initialized: /Users/ec2-user/Library/Application Support/AwsSsoSsmDashboardTool/logs/launcher.log
+[2026-03-05 07:19:47] INFO BaseDir=/Users/ec2-user/AWS-SSO-AutomationTool/dist/AwsSsoSsmDashboardTool.app/Contents/Frameworks
+[2026-03-05 07:19:47] INFO CWD=/Users/ec2-user/AWS-SSO-AutomationTool/dist/AwsSsoSsmDashboardTool.app/Contents/Frameworks
+[2026-03-05 07:19:47] INFO Frozen=True
+[2026-03-05 07:19:47] INFO sys._MEIPASS=/Users/ec2-user/AWS-SSO-AutomationTool/dist/AwsSsoSsmDashboardTool.app/Contents/Frameworks
+[2026-03-05 07:19:47] INFO Launcher starting host=127.0.0.1 preferred_port=5050 chosen_port=5050 url=http://127.0.0.1:5050/
+[2026-03-05 07:19:47] INFO primary_log=/Users/ec2-user/Library/Application Support/AwsSsoSsmDashboardTool/logs/launcher.log
+[2026-03-05 07:19:47] INFO fallback_log=/var/folders/b6/_ltc1tk95h13wfd2n18gh_q00000gn/T/AwsSsoSsmDashboardTool_launcher_fallback.log
+[2026-03-05 07:19:47] INFO webview_available=True
+[2026-03-05 07:19:48] ERROR SERVER_CRASH: IsADirectoryError(21, 'Is a directory')
+[2026-03-05 07:19:48] ERROR Traceback (most recent call last):
+  File "launcher_desktop.py", line 158, in start_server_thread
+  File "launcher_desktop.py", line 139, in _serve_using_main
+  File "<frozen importlib._bootstrap>", line 1176, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1147, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 690, in _load_unlocked
+  File "PyInstaller/loader/pyimod02_importers.py", line 419, in exec_module
+  File "main.py", line 276, in <module>
+  File "main.py", line 231, in init_db
+IsADirectoryError: [Errno 21] Is a directory: '/Users/ec2-user/AWS-SSO-AutomationTool/dist/AwsSsoSsmDashboardTool.app/Contents/Frameworks/schema.sql'
+
+[2026-03-05 07:20:28] INFO Port listening=False host=127.0.0.1 port=5050
+[2026-03-05 07:22:58] INFO Logger initialized: /Users/ec2-user/Library/Application Support/AwsSsoSsmDashboardTool/logs/launcher.log
+[2026-03-05 07:22:58] INFO BaseDir=/Users/ec2-user/AWS-SSO-AutomationTool/dist/AwsSsoSsmDashboardTool.app/Contents/Frameworks
+[2026-03-05 07:22:58] INFO CWD=/Users/ec2-user/AWS-SSO-AutomationTool/dist/AwsSsoSsmDashboardTool.app/Contents/Frameworks
+[2026-03-05 07:22:58] INFO Frozen=True
+[2026-03-05 07:22:58] INFO sys._MEIPASS=/Users/ec2-user/AWS-SSO-AutomationTool/dist/AwsSsoSsmDashboardTool.app/Contents/Frameworks
+[2026-03-05 07:22:58] INFO Launcher starting host=127.0.0.1 preferred_port=5050 chosen_port=5050 url=http://127.0.0.1:5050/
+[2026-03-05 07:22:58] INFO primary_log=/Users/ec2-user/Library/Application Support/AwsSsoSsmDashboardTool/logs/launcher.log
+[2026-03-05 07:22:58] INFO fallback_log=/var/folders/b6/_ltc1tk95h13wfd2n18gh_q00000gn/T/AwsSsoSsmDashboardTool_launcher_fallback.log
+[2026-03-05 07:22:58] INFO webview_available=True
+[2026-03-05 07:22:58] ERROR SERVER_CRASH: IsADirectoryError(21, 'Is a directory')
+[2026-03-05 07:22:58] ERROR Traceback (most recent call last):
+  File "launcher_desktop.py", line 158, in start_server_thread
+  File "launcher_desktop.py", line 139, in _serve_using_main
+  File "<frozen importlib._bootstrap>", line 1176, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1147, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 690, in _load_unlocked
+  File "PyInstaller/loader/pyimod02_importers.py", line 419, in exec_module
+  File "main.py", line 276, in <module>
+  File "main.py", line 231, in init_db
+IsADirectoryError: [Errno 21] Is a directory: '/Users/ec2-user/AWS-SSO-AutomationTool/dist/AwsSsoSsmDashboardTool.app/Contents/Frameworks/schema.sql'
+
+[2026-03-05 07:23:39] INFO Port listening=False host=127.0.0.1 port=5050
+(.venv) ec2-user@ip-172-25-22-105 AWS-SSO-AutomationTool % 
